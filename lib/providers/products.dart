@@ -1,41 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shopapp/models/http_exception.dart';
 import 'product.dart';
 
 class Products with ChangeNotifier {
-  List<Product> _items = [
-    Product(
-        id: 'p1',
-        title: 'Red Shirt',
-        description: 'A red shirt - it is pretty red!',
-        price: 29.99,
-        imageUrl:
-            'https://cdn.pixabay.com/photo/2016/10/02/22/17/red-t-shirt-1710578_1280.jpg',
-        isFavorite: true),
-    Product(
-      id: 'p2',
-      title: 'Trousers',
-      description: 'A nice pair of trousers.',
-      price: 59.99,
-      imageUrl:
-          'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Trousers%2C_dress_%28AM_1960.022-8%29.jpg/512px-Trousers%2C_dress_%28AM_1960.022-8%29.jpg',
-    ),
-    Product(
-      id: 'p3',
-      title: 'Yellow Scarf',
-      description: 'Warm and cozy - exactly what you need for the winter.',
-      price: 19.99,
-      imageUrl:
-          'https://live.staticflickr.com/4043/4438260868_cc79b3369d_z.jpg',
-    ),
-    Product(
-      id: 'p4',
-      title: 'A Pan',
-      description: 'Prepare any meal you want.',
-      price: 49.99,
-      imageUrl:
-          'https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Cast-Iron-Pan.jpg/1024px-Cast-Iron-Pan.jpg',
-    ),
-  ];
+  List<Product> _items = [];
 
   //var _showFavoriteOnly = false;
 
@@ -64,26 +34,94 @@ class Products with ChangeNotifier {
     return _items.firstWhere((element) => id == element.id);
   }
 
-  void addProduct(Product item) {
-    final newProduct = Product(
-        id: DateTime.now().toString(),
-        title: item.title,
-        description: item.description,
-        price: item.price,
-        imageUrl: item.imageUrl);
-    _items.add(newProduct);
-    notifyListeners();
+  Future<void> fetchData() async {
+    var url = Uri.parse('https://other-d1821.firebaseio.com/products.json');
+    try {
+      final response = await http.get(url);
+      final extractedData = json.decode(response.body) as Map<String, dynamic>;
+      final List<Product> loaded = [];
+      extractedData.forEach((key, value) {
+        loaded.add(Product(
+            id: key,
+            title: value['title'],
+            description: value['description'],
+            price: value['price'] as double,
+            imageUrl: value['imageUrl'],
+            isFavorite: value['isFavorite']));
+      });
+      _items = loaded;
+      notifyListeners();
+    } catch (error) {
+      throw error;
+    }
   }
 
-  void updateProduct(String id, Product item) {
+  Future<void> addProduct(Product item) async {
+    var url = Uri.parse('https://other-d1821.firebaseio.com/products.json');
+
+    try {
+      final response = await http.post(url,
+          body: json.encode({
+            'title': item.title,
+            'description': item.description,
+            'price': item.price,
+            'imageUrl': item.imageUrl,
+            'isFavorite': item.isFavorite
+          }));
+      final newProduct = Product(
+          id: json.decode(response.body)['name'],
+          title: item.title,
+          description: item.description,
+          price: item.price,
+          imageUrl: item.imageUrl);
+      _items.add(newProduct);
+      notifyListeners();
+    } catch (ex) {
+      print(ex.toString());
+    }
+  }
+
+  Future<void> updateProduct(String id, Product item) async {
     final index = _items.indexWhere((element) => element.id == id);
+
     if (index < 0) return;
-    _items[index] = item;
-    notifyListeners();
+    var url =
+        Uri.parse('https://other-d1821.firebaseio.com/products/${id}.json');
+
+    try {
+      await http.patch(url,
+          body: json.encode({
+            'title': item.title,
+            'description': item.description,
+            'price': item.price,
+            'imageUrl': item.imageUrl,
+            'isFavorite': item.isFavorite
+          }));
+      _items[index] = item;
+
+      notifyListeners();
+    } catch (e) {
+      throw (e);
+    }
   }
 
   void deleteProduct(String id) {
+    var url =
+        Uri.parse('https://other-d1821.firebaseio.com/products/${id}.json');
+
+    final int index = _items.indexWhere((element) => element.id == id);
+    final existingProduct = _items[index];
+
     _items.removeWhere((element) => id == element.id);
     notifyListeners();
+
+    http.delete(url).then((value) {
+      if (value.statusCode >= 400) {
+        throw HttpExeption('Could not delete');
+      }
+    }).catchError((error) {
+      _items.insert(index, existingProduct);
+      notifyListeners();
+    });
   }
 }
